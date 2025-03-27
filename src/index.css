@@ -1,0 +1,72 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+/* Ensure minimum touch target sizes */
+button,
+[role="button"],
+input,
+select {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 12px;
+}
+
+/* Improve text legibility */
+p, h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  padding: 0;
+}
+
+/* Ensure proper spacing */
+* {
+  box-sizing: border-box;
+}
+
+/* Improve touch feedback */
+@media (hover: hover) {
+  button:hover {
+    opacity: 0.8;
+  }
+}
+
+/* Disable text selection on interactive elements */
+button,
+[role="button"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Improve focus visibility */
+:focus {
+  outline: 2px solid #0A84FF;
+  outline-offset: 2px;
+}
+
+/* Hide focus rings for mouse users */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Improve scrolling experience */
+* {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent image dragging */
+img {
+  -webkit-user-drag: none;
+  user-select: none;
+} 
