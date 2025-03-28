@@ -185,16 +185,29 @@ function App() {
   }, [shaderOptions]);
   
   const loadTestImage = () => {
-    console.log("App: Loading test image with base64 data");
+    console.log("App: Loading default tunnel rats image");
     
-    // Simple 200x200 red square as base64 data URL
-    const testImageBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAAAXNSR0IArs4c6QAABCdJREFUeF7t1AENAAAIw7CDf09DHcQJfuwcuJl5joBAoAisQDpWCATeBCyIb0CgIGBBgDo6AQvi/xMoCFiQoI5OwIL4/wQKAhYkqKMTsCD+P4GCgAUJ6ugELIj/T6AgYEGCOjoBC+L/EygIWJCgjk7Agvj/BAoCFiSooxOwIP4/gYKABQnq6AQsiP9PoCAw71Lq2khJbVkAAAAASUVORK5CYII=';
-    
-    // Set the image directly
-    setSelectedImage(testImageBase64);
-    setImageLoaded(true);
-    
-    console.log("App: Test image loaded with base64 data");
+    // Directly use the Tunnel Rats image as base64
+    // This avoids needing to store the file in the public directory
+    fetch('https://i.imgur.com/PDTkGn7.jpeg')
+      .then(response => response.blob())
+      .then(blob => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64data = reader.result as string;
+          setSelectedImage(base64data);
+          setImageLoaded(true);
+          console.log("App: Default image loaded successfully");
+        };
+        reader.readAsDataURL(blob);
+      })
+      .catch(error => {
+        console.error("Failed to load default image:", error);
+        // Fallback to a simple colored square if image fails to load
+        const fallbackImageBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAAAXNSR0IArs4c6QAABCdJREFUeF7t1AENAAAIw7CDf09DHcQJfuwcuJl5joBAoAisQDpWCATeBCyIb0CgIGBBgDo6AQvi/xMoCFiQoI5OwIL4/wQKAhYkqKMTsCD+P4GCgAUJ6ugELIj/T6AgYEGCOjoBC+L/EygIWJCgjk7Agvj/BAoCFiSooxOwIP4/gYKABQnq6AQsiP9PoCAw71Lq2khJbVkAAAAASUVORK5CYII=';
+        setSelectedImage(fallbackImageBase64);
+        setImageLoaded(true);
+      });
   };
 
   const handleImageChange = (imageDataUrl: string) => {
