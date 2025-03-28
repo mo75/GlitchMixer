@@ -173,6 +173,17 @@ function ImageEditor({
   // Initialize the shader effect
   const shaderEffect = useShaderEffect();
 
+  // Get the saved order preference, default to shaders first
+  const [shadersFirst, setShadersFirst] = useState<boolean>(
+    localStorage.getItem('glitchMixer_shadersFirst') === 'false' ? false : true
+  );
+  
+  // Save order preference when it changes
+  const handleOrderChange = (newValue: boolean) => {
+    setShadersFirst(newValue);
+    localStorage.setItem('glitchMixer_shadersFirst', newValue.toString());
+  };
+
   // Define updateCanvasDimensions at the top of the component so it can be referenced anywhere
   const updateCanvasDimensions = () => {
     console.log("ImageEditor: Updating canvas dimensions, animated GIF:", isAnimatedGif);
@@ -1228,103 +1239,146 @@ function ImageEditor({
         </Paper>
       </Grid>
       <Grid item xs={12} md={4}>
-        <EffectControls 
-          effects={userEffects} 
-          onChange={handleEffectsChange} 
-          onReset={handleEffectsReset} 
-          onSave={handleSaveImage}
-          animationEnabled={animationOptions.enabled}
-          onAnimationToggle={handleAnimationEnabledChange}
-          animationSpeed={animationOptions.speed}
-          onAnimationSpeedChange={handleAnimationSpeedChange}
-          animationIntensity={animationOptions.intensity}
-          onAnimationIntensityChange={handleAnimationIntensityChange}
-          chaoticMode={chaoticMode}
-          onChaoticModeToggle={handleChaoticModeChange}
-          audioReactive={animationOptions.audioReactive}
-          onAudioReactiveToggle={handleAudioReactiveChange}
-          microphoneActive={audioData.isActive}
-          onMicrophoneToggle={handleMicrophoneToggle}
-        />
-
-        {/* Corruption Controls */}
-        <CorruptionControls
-          byteCorrupt={userEffects.byteCorrupt}
-          chunkSwap={userEffects.chunkSwap}
-          binaryXor={userEffects.binaryXor}
-          secondaryImages={imageBlender.secondaryImages}
-          selectedImage={imageBlender.selectedImage}
-          blendOptions={imageBlender.blendOptions}
-          onByteCorruptChange={(options) => handleEffectsChange({ ...userEffects, byteCorrupt: options })}
-          onChunkSwapChange={(options) => handleEffectsChange({ ...userEffects, chunkSwap: options })}
-          onBinaryXorChange={(options) => handleEffectsChange({ ...userEffects, binaryXor: options })}
-          onBlendImageUpload={imageBlender.addSecondaryImage}
-          onBlendImageSelect={imageBlender.selectSecondaryImage}
-          onBlendOptionsChange={imageBlender.updateBlendOptions}
-          onBlendReset={imageBlender.resetBlendOptions}
-        />
-
-        {/* Replace old ShaderControls with new ShaderLayerControls */}
-        <ShaderLayerControls 
-          shaderOptions={shaderOptions}
-          onShaderOptionsChange={onShaderOptionsChange}
-        />
-
-        {/* Add export and reset buttons */}
-        <Grid container spacing={2} sx={{ mt: 2 }}>
-          <Grid item xs={12} md={6}>
-            <Box sx={{ display: 'flex', justifyContent: 'flex-start', gap: 2 }}>
-              <ExportControls canvasRef={canvasRef} />
-            </Box>
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
-              <Button
-                variant="outlined"
-                color="secondary"
-                onClick={onEffectsReset}
-                startIcon={<RestartAltIcon />}
-              >
-                Reset Effects
-              </Button>
-              
-              {/* Add button to upload a new image */}
-              <Button
-                variant="outlined"
-                color="primary"
-                onClick={() => {
-                  // Tell parent component to clear the image
-                  onImageChange('');
-                  // Show the upload interface
-                  setDisplayUploadInterface(true);
-                  // Reset state
-                  setImageElement(null);
-                  setIsAnimatedGif(false);
-                  setOriginalImageData(null);
-                }}
-                startIcon={<FileUploadIcon />}
-              >
-                Change Image
-              </Button>
-            </Box>
-          </Grid>
-        </Grid>
-
-        {/* Add the preset manager */}
-        <Box sx={{ mt: 4 }}>
-          <Divider sx={{ mb: 3 }} />
-          <PresetManager
-            currentGlitchOptions={effects}
-            currentShaderOptions={shaderOptions}
-            onPresetApply={onApplyPreset}
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <EffectControls 
+            effects={userEffects} 
+            onChange={handleEffectsChange} 
+            onReset={handleEffectsReset} 
+            onSave={handleSaveImage}
+            animationEnabled={animationOptions.enabled}
+            onAnimationToggle={handleAnimationEnabledChange}
+            animationSpeed={animationOptions.speed}
+            onAnimationSpeedChange={handleAnimationSpeedChange}
+            animationIntensity={animationOptions.intensity}
+            onAnimationIntensityChange={handleAnimationIntensityChange}
+            chaoticMode={chaoticMode}
+            onChaoticModeToggle={handleChaoticModeChange}
+            audioReactive={animationOptions.audioReactive}
+            onAudioReactiveToggle={handleAudioReactiveChange}
+            microphoneActive={audioData.isActive}
+            onMicrophoneToggle={handleMicrophoneToggle}
           />
-        </Box>
 
-        {/* Add hidden canvases for processing */}
-        <Box sx={{ display: 'none' }}>
-          <canvas ref={shaderCanvasRef} />
-          {/* Hidden canvas for external use */}
-          <canvas ref={canvasRef} />
+          {/* Add control order toggle */}
+          <Box sx={{ mb: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+            <Typography variant="body2" sx={{ mr: 1 }}>Glitch First</Typography>
+            <Switch
+              checked={shadersFirst}
+              onChange={(e) => handleOrderChange(e.target.checked)}
+              color="primary"
+            />
+            <Typography variant="body2" sx={{ ml: 1 }}>Shaders First</Typography>
+          </Box>
+          
+          {/* Conditionally render controls based on order preference */}
+          {shadersFirst ? (
+            <>
+              {/* ShaderLayerControls first */}
+              <ShaderLayerControls 
+                shaderOptions={shaderOptions}
+                onShaderOptionsChange={onShaderOptionsChange}
+              />
+              
+              {/* CorruptionControls second */}
+              <CorruptionControls
+                byteCorrupt={userEffects.byteCorrupt}
+                chunkSwap={userEffects.chunkSwap}
+                binaryXor={userEffects.binaryXor}
+                secondaryImages={imageBlender.secondaryImages}
+                selectedImage={imageBlender.selectedImage}
+                blendOptions={imageBlender.blendOptions}
+                onByteCorruptChange={(options) => handleEffectsChange({ ...userEffects, byteCorrupt: options })}
+                onChunkSwapChange={(options) => handleEffectsChange({ ...userEffects, chunkSwap: options })}
+                onBinaryXorChange={(options) => handleEffectsChange({ ...userEffects, binaryXor: options })}
+                onBlendImageUpload={imageBlender.addSecondaryImage}
+                onBlendImageSelect={imageBlender.selectSecondaryImage}
+                onBlendOptionsChange={imageBlender.updateBlendOptions}
+                onBlendReset={imageBlender.resetBlendOptions}
+              />
+            </>
+          ) : (
+            <>
+              {/* CorruptionControls first */}
+              <CorruptionControls
+                byteCorrupt={userEffects.byteCorrupt}
+                chunkSwap={userEffects.chunkSwap}
+                binaryXor={userEffects.binaryXor}
+                secondaryImages={imageBlender.secondaryImages}
+                selectedImage={imageBlender.selectedImage}
+                blendOptions={imageBlender.blendOptions}
+                onByteCorruptChange={(options) => handleEffectsChange({ ...userEffects, byteCorrupt: options })}
+                onChunkSwapChange={(options) => handleEffectsChange({ ...userEffects, chunkSwap: options })}
+                onBinaryXorChange={(options) => handleEffectsChange({ ...userEffects, binaryXor: options })}
+                onBlendImageUpload={imageBlender.addSecondaryImage}
+                onBlendImageSelect={imageBlender.selectSecondaryImage}
+                onBlendOptionsChange={imageBlender.updateBlendOptions}
+                onBlendReset={imageBlender.resetBlendOptions}
+              />
+              
+              {/* ShaderLayerControls second */}
+              <ShaderLayerControls 
+                shaderOptions={shaderOptions}
+                onShaderOptionsChange={onShaderOptionsChange}
+              />
+            </>
+          )}
+
+          {/* Add export and reset buttons */}
+          <Grid container spacing={2} sx={{ mt: 2 }}>
+            <Grid item xs={12} md={6}>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-start', gap: 2 }}>
+                <ExportControls canvasRef={canvasRef} />
+              </Box>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
+                <Button
+                  variant="outlined"
+                  color="secondary"
+                  onClick={onEffectsReset}
+                  startIcon={<RestartAltIcon />}
+                >
+                  Reset Effects
+                </Button>
+                
+                {/* Add button to upload a new image */}
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={() => {
+                    // Tell parent component to clear the image
+                    onImageChange('');
+                    // Show the upload interface
+                    setDisplayUploadInterface(true);
+                    // Reset state
+                    setImageElement(null);
+                    setIsAnimatedGif(false);
+                    setOriginalImageData(null);
+                  }}
+                  startIcon={<FileUploadIcon />}
+                >
+                  Change Image
+                </Button>
+              </Box>
+            </Grid>
+          </Grid>
+
+          {/* Add the preset manager */}
+          <Box sx={{ mt: 4 }}>
+            <Divider sx={{ mb: 3 }} />
+            <PresetManager
+              currentGlitchOptions={effects}
+              currentShaderOptions={shaderOptions}
+              onPresetApply={onApplyPreset}
+            />
+          </Box>
+
+          {/* Add hidden canvases for processing */}
+          <Box sx={{ display: 'none' }}>
+            <canvas ref={shaderCanvasRef} />
+            {/* Hidden canvas for external use */}
+            <canvas ref={canvasRef} />
+          </Box>
         </Box>
       </Grid>
       
