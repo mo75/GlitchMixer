@@ -133,14 +133,10 @@ function App() {
   // Create shader effect instance
   const { shaderOptions: shaderState } = useShaderEffect();
   
-  // Load image from localStorage on mount or load test image
+  // Load Tunnel Rats image on mount
   useEffect(() => {
-    const savedImage = localStorage.getItem('glitchMixer_image');
-    if (savedImage) {
-      setSelectedImage(savedImage);
-    } else {
-      loadTestImage();
-    }
+    // Always load the Tunnel Rats test image by default
+    loadTestImage();
     
     // Load effects from localStorage
     const savedEffects = localStorage.getItem('glitchMixer_effects');
