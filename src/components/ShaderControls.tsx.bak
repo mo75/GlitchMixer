@@ -1,0 +1,322 @@
+import React, { useState } from 'react';
+import {
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControl,
+  FormControlLabel,
+  FormLabel,
+  Grid,
+  IconButton,
+  MenuItem,
+  Select,
+  SelectChangeEvent,
+  Slider,
+  Switch,
+  TextField,
+  Typography
+} from '@mui/material';
+import {
+  ExpandMore as ExpandMoreIcon,
+  Code as CodeIcon,
+  Tune as TuneIcon,
+  OpenInNew as OpenInNewIcon,
+  RestartAlt as RestartIcon
+} from '@mui/icons-material';
+import { ShaderOptions, SHADER_PRESETS } from '../hooks/useShaderEffect';
+
+interface ShaderControlsProps {
+  shaderOptions: ShaderOptions;
+  onShaderOptionsChange: (options: Partial<ShaderOptions>) => void;
+}
+
+export default function ShaderControls({ 
+  shaderOptions, 
+  onShaderOptionsChange 
+}: ShaderControlsProps) {
+  const [codeDialogOpen, setCodeDialogOpen] = useState(false);
+  const [tempShaderCode, setTempShaderCode] = useState('');
+  
+  // Helper function to get the first layer or create a default one if none exists
+  const getFirstLayer = () => {
+    if (!shaderOptions.layers || shaderOptions.layers.length === 0) {
+      return {
+        fragmentShader: SHADER_PRESETS.none,
+        uniforms: {},
+        intensity: 0.5,
+        enabled: true,
+        customCode: '',
+        opacity: 1.0
+      };
+    }
+    return shaderOptions.layers[0];
+  };
+  
+  const handleShaderPresetChange = (event: SelectChangeEvent) => {
+    const selectedPreset = event.target.value as keyof typeof SHADER_PRESETS | 'custom';
+    const firstLayer = getFirstLayer();
+    
+    if (selectedPreset === 'custom') {
+      // If custom is selected, open the code editor dialog and keep using current code
+      setTempShaderCode(firstLayer.customCode || firstLayer.fragmentShader);
+      setCodeDialogOpen(true);
+    } else {
+      // Otherwise, apply the selected preset
+      const updatedLayers = [...(shaderOptions.layers || [])];
+      updatedLayers[0] = {
+        ...firstLayer,
+        fragmentShader: SHADER_PRESETS[selectedPreset],
+        customCode: '' // Clear custom code when switching to a preset
+      };
+      
+      onShaderOptionsChange({
+        layers: updatedLayers
+      });
+    }
+  };
+  
+  const handleOpenCodeEditor = () => {
+    const firstLayer = getFirstLayer();
+    setTempShaderCode(firstLayer.customCode || firstLayer.fragmentShader);
+    setCodeDialogOpen(true);
+  };
+  
+  const handleCloseCodeEditor = () => {
+    setCodeDialogOpen(false);
+  };
+  
+  const handleApplyCustomShader = () => {
+    const firstLayer = getFirstLayer();
+    const updatedLayers = [...(shaderOptions.layers || [])];
+    updatedLayers[0] = {
+      ...firstLayer,
+      fragmentShader: tempShaderCode,
+      customCode: tempShaderCode
+    };
+    
+    onShaderOptionsChange({
+      layers: updatedLayers
+    });
+    setCodeDialogOpen(false);
+  };
+  
+  const handleIntensityChange = (event: Event, newValue: number | number[]) => {
+    const firstLayer = getFirstLayer();
+    const updatedLayers = [...(shaderOptions.layers || [])];
+    updatedLayers[0] = {
+      ...firstLayer,
+      intensity: newValue as number
+    };
+    
+    onShaderOptionsChange({
+      layers: updatedLayers
+    });
+  };
+  
+  const handleEnableChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    onShaderOptionsChange({
+      enabled: event.target.checked
+    });
+  };
+  
+  // Determine current shader preset name for the dropdown
+  const getCurrentPresetName = (): string => {
+    const firstLayer = getFirstLayer();
+    
+    if (firstLayer.customCode) return 'custom';
+    
+    console.log("Getting current preset name, fragmentShader length:", firstLayer.fragmentShader?.length || 0);
+    
+    const presetEntries = Object.entries(SHADER_PRESETS);
+    const matchingPreset = presetEntries.find(
+      ([_, code]) => code === firstLayer.fragmentShader
+    );
+    
+    if (matchingPreset) {
+      console.log("Found matching preset:", matchingPreset[0]);
+      return matchingPreset[0];
+    }
+    
+    return 'none';
+  };
+  
+  return (
+    <Box sx={{ mt: 2 }}>
+      <Accordion>
+        <AccordionSummary
+          expandIcon={<ExpandMoreIcon />}
+          aria-controls="shader-controls-content"
+          id="shader-controls-header"
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+            <TuneIcon sx={{ mr: 1 }} />
+            <Typography sx={{ flexGrow: 1 }}>WebGL Shader Effects</Typography>
+            <Switch
+              size="small"
+              checked={shaderOptions.enabled}
+              onChange={handleEnableChange}
+              onClick={(e) => e.stopPropagation()}
+            />
+          </Box>
+        </AccordionSummary>
+        
+        <AccordionDetails>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <FormControl fullWidth>
+                <FormLabel>Shader Type</FormLabel>
+                <Select
+                  value={getCurrentPresetName()}
+                  onChange={handleShaderPresetChange}
+                  disabled={!shaderOptions.enabled}
+                >
+                  <MenuItem value="none">None (Passthrough)</MenuItem>
+                  <MenuItem value="hueRotate">Hue Rotation</MenuItem>
+                  <MenuItem value="rgbShift">RGB Shift</MenuItem>
+                  <MenuItem value="wave">Wave Distortion</MenuItem>
+                  <MenuItem value="digitalNoise">Digital Noise</MenuItem>
+                  <MenuItem value="pixelate">Pixelation</MenuItem>
+                  <MenuItem value="vhsGlitch">VHS Distortion</MenuItem>
+                  <MenuItem value="custom">Custom Shader...</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            
+            <Grid item xs={12}>
+              <FormLabel>Effect Intensity</FormLabel>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Slider
+                  value={getFirstLayer().intensity}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onChange={handleIntensityChange}
+                  disabled={!shaderOptions.enabled || getCurrentPresetName() === 'none'}
+                />
+                <Typography sx={{ ml: 2, minWidth: '45px' }}>
+                  {Math.round(getFirstLayer().intensity * 100)}%
+                </Typography>
+              </Box>
+            </Grid>
+            
+            {getFirstLayer().customCode && (
+              <Grid item xs={12}>
+                <Button
+                  startIcon={<CodeIcon />}
+                  variant="outlined"
+                  fullWidth
+                  onClick={handleOpenCodeEditor}
+                  disabled={!shaderOptions.enabled}
+                >
+                  Edit Custom Shader
+                </Button>
+              </Grid>
+            )}
+            
+            <Grid item xs={12}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
+                <Button
+                  startIcon={<RestartIcon />}
+                  color="secondary"
+                  size="small"
+                  onClick={() => onShaderOptionsChange({
+                    layers: [{
+                      fragmentShader: SHADER_PRESETS.none,
+                      uniforms: {},
+                      intensity: 0.5,
+                      customCode: '',
+                      enabled: true,
+                      opacity: 1.0
+                    }],
+                    enabled: false
+                  })}
+                >
+                  Reset
+                </Button>
+                
+                <Button
+                  endIcon={<OpenInNewIcon />}
+                  size="small"
+                  color="primary"
+                  component="a"
+                  href="https://shadertoy.com/examples"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Shader Examples
+                </Button>
+              </Box>
+            </Grid>
+          </Grid>
+        </AccordionDetails>
+      </Accordion>
+      
+      {/* Custom Shader Code Editor Dialog */}
+      <Dialog
+        open={codeDialogOpen}
+        onClose={handleCloseCodeEditor}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <CodeIcon sx={{ mr: 1 }} />
+            Custom WebGL Fragment Shader
+          </Box>
+        </DialogTitle>
+        
+        <DialogContent>
+          <Box sx={{ my: 2 }}>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              Write your custom GLSL fragment shader. The following uniforms are available:
+            </Typography>
+            
+            <Box component="ul" sx={{ pl: 2, mb: 2 }}>
+              <Box component="li">
+                <code>uniform sampler2D u_image;</code> - The input image
+              </Box>
+              <Box component="li">
+                <code>uniform float u_time;</code> - Current time in seconds
+              </Box>
+              <Box component="li">
+                <code>uniform float u_intensity;</code> - Effect intensity (0.0-1.0)
+              </Box>
+              <Box component="li">
+                <code>uniform vec2 u_resolution;</code> - Image dimensions (width, height)
+              </Box>
+              <Box component="li">
+                <code>varying vec2 v_texCoord;</code> - Texture coordinates (0.0-1.0)
+              </Box>
+            </Box>
+            
+            <TextField
+              fullWidth
+              multiline
+              variant="outlined"
+              value={tempShaderCode}
+              onChange={(e) => setTempShaderCode(e.target.value)}
+              rows={20}
+              sx={{
+                fontFamily: '"Roboto Mono", monospace',
+                '& .MuiInputBase-input': { fontFamily: '"Roboto Mono", monospace' }
+              }}
+            />
+          </Box>
+        </DialogContent>
+        
+        <DialogActions>
+          <Button onClick={handleCloseCodeEditor}>Cancel</Button>
+          <Button onClick={handleApplyCustomShader} variant="contained" color="primary">
+            Apply Shader
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+} 

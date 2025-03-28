@@ -173,7 +173,320 @@ function ImageEditor({
   // Initialize the shader effect
   const shaderEffect = useShaderEffect();
 
-  // Define updateCanvasDimensions at the top of the component so it can be referenced anywhere
+  // Update shader effect options when shaderOptions prop changes
+  useEffect(() => {
+    console.log("Updating shader effect options:", shaderOptions);
+    // Make sure there are valid shader layers
+    shaderEffect.setShaderOptions(shaderOptions);
+  }, [shaderOptions, shaderEffect]);
+
+  // Apply shader effects if enabled
+  const applyShaderEffects = (canvas: HTMLCanvasElement, shaderCanvas: HTMLCanvasElement): boolean => {
+    if (!shaderOptions.enabled || !shaderOptions.layers.some(layer => layer.enabled)) {
+      return false;
+    }
+    
+    // Apply the shader effect
+    return shaderEffect.applyShader(
+      canvas,
+      shaderCanvas,
+      {}
+    );
+  };
+
+  // Add local storage for effect settings persistence
+  useEffect(() => {
+    try {
+      // Load saved settings from localStorage if available
+      const savedEffects = localStorage.getItem('glitchMixer_effects');
+      const savedAnimationSettings = localStorage.getItem('glitchMixer_animation');
+      const savedResolutionSettings = localStorage.getItem('glitchMixer_resolution');
+      
+      if (savedEffects) {
+        const parsedEffects = JSON.parse(savedEffects);
+        console.log("ImageEditor: Loaded saved effects from localStorage");
+        setUserEffects(parsedEffects);
+      }
+      
+      if (savedAnimationSettings) {
+        const parsedAnimationSettings = JSON.parse(savedAnimationSettings);
+        console.log("ImageEditor: Loaded saved animation settings from localStorage");
+        setAnimationOptions(parsedAnimationSettings);
+        
+        // Apply animation settings to the hook
+        updateAnimationOptions(parsedAnimationSettings);
+        
+        // If audio reactive was on, restart audio analysis
+        if (parsedAnimationSettings.audioReactive) {
+          startAudioAnalysis();
+        }
+        
+        // Set chaotic mode separately since it has its own state
+        setChaoticMode(parsedAnimationSettings.chaotic || false);
+      }
+      
+      if (savedResolutionSettings) {
+        const parsedResolutionSettings = JSON.parse(savedResolutionSettings);
+        console.log("ImageEditor: Loaded saved resolution settings from localStorage");
+        
+        // Restore resolution settings
+        if (parsedResolutionSettings.selectedResolution) {
+          const foundPreset = resolutionPresets.find(
+            preset => preset.name === parsedResolutionSettings.selectedResolution.name
+          );
+          
+          if (foundPreset) {
+            setSelectedResolution(foundPreset);
+          }
+        }
+        
+        // Restore custom dimensions
+        if (parsedResolutionSettings.customWidth) {
+          setCustomWidth(parsedResolutionSettings.customWidth);
+        }
+        
+        if (parsedResolutionSettings.customHeight) {
+          setCustomHeight(parsedResolutionSettings.customHeight);
+        }
+        
+        // Restore crop settings
+        if (parsedResolutionSettings.cropMode) {
+          setCropMode(parsedResolutionSettings.cropMode);
+        }
+        
+        if (parsedResolutionSettings.cropPosition) {
+          setCropPosition(parsedResolutionSettings.cropPosition);
+        }
+        
+        // Restore aspect ratio settings
+        if (parsedResolutionSettings.maintainAspectRatio !== undefined) {
+          setMaintainAspectRatio(parsedResolutionSettings.maintainAspectRatio);
+        }
+        
+        if (parsedResolutionSettings.aspectRatio) {
+          setAspectRatio(parsedResolutionSettings.aspectRatio);
+        }
+      }
+    } catch (err) {
+      console.error("ImageEditor: Error loading saved settings:", err);
+    }
+  }, []);
+
+  // Save effect settings to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('glitchMixer_effects', JSON.stringify(userEffects));
+    } catch (err) {
+      console.error("ImageEditor: Error saving effect settings to localStorage:", err);
+    }
+  }, [userEffects]);
+
+  // Save animation settings to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('glitchMixer_animation', JSON.stringify(animationOptions));
+    } catch (err) {
+      console.error("ImageEditor: Error saving animation settings to localStorage:", err);
+    }
+  }, [animationOptions]);
+
+  // Save resolution settings to localStorage whenever they change
+  useEffect(() => {
+    try {
+      const resolutionSettings = {
+        selectedResolution,
+        customWidth,
+        customHeight,
+        cropMode,
+        cropPosition,
+        maintainAspectRatio,
+        aspectRatio
+      };
+      
+      localStorage.setItem('glitchMixer_resolution', JSON.stringify(resolutionSettings));
+    } catch (err) {
+      console.error("ImageEditor: Error saving resolution settings to localStorage:", err);
+    }
+  }, [selectedResolution, customWidth, customHeight, cropMode, cropPosition, maintainAspectRatio, aspectRatio]);
+
+  // Improve the static image loading function
+  const loadStaticImage = (url: string) => {
+    console.log("ImageEditor: Loading static image:", url);
+    
+    setIsLoading(true);
+    setError(null);
+    
+    const image = new Image();
+    image.crossOrigin = 'Anonymous';
+    
+    image.onload = () => {
+      console.log("ImageEditor: Static image loaded successfully:", image.width, "x", image.height);
+      setImageElement(image);
+      setIsAnimatedGif(false);
+      setIsLoading(false);
+      
+      // Set initial aspect ratio
+      setAspectRatio(image.width / image.height);
+      
+      // If using original resolution, set custom dimensions to match image
+      if (selectedResolution.name === 'Original') {
+        setCustomWidth(image.width);
+        setCustomHeight(image.height);
+      }
+      
+      // Schedule canvas update after state changes have been applied
+      setTimeout(() => {
+        console.log("ImageEditor: Updating canvas dimensions for static image");
+        updateCanvasDimensions();
+      }, 50);
+    };
+    
+    image.onerror = (err) => {
+      console.error("ImageEditor: Error loading image:", err);
+      setError('Failed to load the image. Check the URL or file format.');
+      setIsLoading(false);
+      setImageElement(null);
+      setDisplayUploadInterface(true);
+    };
+    
+    try {
+      // For data URLs or regular URLs
+      image.src = url;
+    } catch (err) {
+      console.error("ImageEditor: Error setting image source:", err);
+      setError('Invalid image URL or format.');
+      setIsLoading(false);
+      setDisplayUploadInterface(true);
+    }
+  };
+
+  // Update the GIF rendering effect to be more robust
+  useEffect(() => {
+    if (!isAnimatedGif || isLoading || !canvasRefOriginal.current) {
+      return;
+    }
+    
+    console.log("ImageEditor: Setting up animated GIF rendering loop");
+    
+    // Create a stable animation loop
+    useEffect(() => {
+      if (isLoading || !canvasRefOriginal.current) return;
+      
+      // Define function to render a single frame
+      const renderFrame = () => {
+        try {
+          console.log("Rendering frame");
+          
+          if (isAnimatedGif) {
+            console.log("Rendering animated GIF frame");
+            // For GIFs, get the current frame from the animated GIF handler
+            const frameData = animatedGif.getCurrentFrameData();
+            if (!frameData) {
+              console.warn("No frame data available for animation");
+              return;
+            }
+            
+            // Get canvas and context
+            const canvas = canvasRefOriginal.current;
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (!ctx) return;
+            
+            // Draw the current frame to the canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.putImageData(frameData, 0, 0);
+            
+            // Apply glitch effects to the current frame
+            const effectsToUse = animationOptions.enabled ? effectsToApply : userEffects;
+            applyEffects(canvas, effectsToUse);
+            
+            // Now apply shader effects if enabled
+            if (shaderOptions.enabled && shaderCanvasRef.current) {
+              console.log("Applying shader to animated GIF frame");
+              
+              // Make sure shader canvas has the correct dimensions
+              const shaderCanvas = shaderCanvasRef.current;
+              shaderCanvas.width = canvas.width;
+              shaderCanvas.height = canvas.height;
+              
+              // Apply the shader to the output canvas and render to shader canvas
+              const success = shaderEffect.applyShader(
+                canvas, 
+                shaderCanvas,
+                {}
+              );
+              
+              // Copy the shader canvas to the main output canvas if successful
+              if (success) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(shaderCanvas, 0, 0);
+              }
+            }
+            
+            // Copy the final canvas to the external canvasRef (if provided)
+            if (canvasRef && canvasRef.current) {
+              canvasRef.current.width = canvas.width;
+              canvasRef.current.height = canvas.height;
+              const externalCtx = canvasRef.current.getContext('2d');
+              if (externalCtx) {
+                externalCtx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+                externalCtx.drawImage(canvas, 0, 0);
+              }
+            }
+            
+          } else if (imageElement && originalImageData) {
+            // For static images, start with the original image and apply effects
+            const canvas = canvasRefOriginal.current;
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (!ctx) return;
+            
+            // Start with the original image
+            ctx.putImageData(originalImageData, 0, 0);
+            
+            // Apply glitch effects (either animated or static)
+            const effectsToUse = animationOptions.enabled ? effectsToApply : userEffects;
+            applyEffects(canvas, effectsToUse);
+            
+            // Apply shader effects if enabled
+            if (shaderOptions.enabled && shaderCanvasRef.current) {
+              // Apply the shader effects
+              const shaderCanvas = shaderCanvasRef.current;
+              shaderCanvas.width = canvas.width;
+              shaderCanvas.height = canvas.height;
+              
+              const success = shaderEffect.applyShader(
+                canvas, 
+                shaderCanvas,
+                {}
+              );
+              
+              if (success) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(shaderCanvas, 0, 0);
+              }
+            }
+            
+            // Copy to external canvas if provided
+            if (canvasRef && canvasRef.current) {
+              canvasRef.current.width = canvas.width;
+              canvasRef.current.height = canvas.height;
+              const externalCtx = canvasRef.current.getContext('2d');
+              if (externalCtx) {
+                externalCtx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+                externalCtx.drawImage(canvas, 0, 0);
+              }
+            }
+          }
+        } catch (error) {
+          console.error("Error in renderFrame:", error);
+        }
+      };
+    });
+
+  // Improve the updateCanvasDimensions function to handle edge cases
   const updateCanvasDimensions = () => {
     console.log("ImageEditor: Updating canvas dimensions, animated GIF:", isAnimatedGif);
     
@@ -320,246 +633,6 @@ function ImageEditor({
     }
   };
 
-  // Update shader effect options when shaderOptions prop changes
-  useEffect(() => {
-    console.log("Updating shader effect options:", shaderOptions);
-    // Make sure there are valid shader layers
-    shaderEffect.setShaderOptions(shaderOptions);
-  }, [shaderOptions, shaderEffect]);
-
-  // Apply shader effects if enabled
-  const applyShaderEffects = (canvas: HTMLCanvasElement, shaderCanvas: HTMLCanvasElement): boolean => {
-    if (!shaderOptions.enabled || !shaderOptions.layers.some(layer => layer.enabled)) {
-      return false;
-    }
-    
-    // Apply the shader effect
-    return shaderEffect.applyShader(
-      canvas,
-      shaderCanvas,
-      {}
-    );
-  }
-
-  // Add local storage for effect settings persistence
-  useEffect(() => {
-    try {
-      // Load saved settings from localStorage if available
-      const savedEffects = localStorage.getItem('glitchMixer_effects');
-      const savedAnimationSettings = localStorage.getItem('glitchMixer_animation');
-      const savedResolutionSettings = localStorage.getItem('glitchMixer_resolution');
-      
-      if (savedEffects) {
-        const parsedEffects = JSON.parse(savedEffects);
-        console.log("ImageEditor: Loaded saved effects from localStorage");
-        setUserEffects(parsedEffects);
-      }
-      
-      if (savedAnimationSettings) {
-        const parsedAnimationSettings = JSON.parse(savedAnimationSettings);
-        console.log("ImageEditor: Loaded saved animation settings from localStorage");
-        setAnimationOptions(parsedAnimationSettings);
-        
-        // Apply animation settings to the hook
-        updateAnimationOptions(parsedAnimationSettings);
-        
-        // If audio reactive was on, restart audio analysis
-        if (parsedAnimationSettings.audioReactive) {
-          startAudioAnalysis();
-        }
-        
-        // Set chaotic mode separately since it has its own state
-        setChaoticMode(parsedAnimationSettings.chaotic || false);
-      }
-      
-      if (savedResolutionSettings) {
-        const parsedResolutionSettings = JSON.parse(savedResolutionSettings);
-        console.log("ImageEditor: Loaded saved resolution settings from localStorage");
-        
-        // Restore resolution settings
-        if (parsedResolutionSettings.selectedResolution) {
-          const foundPreset = resolutionPresets.find(
-            preset => preset.name === parsedResolutionSettings.selectedResolution.name
-          );
-          
-          if (foundPreset) {
-            setSelectedResolution(foundPreset);
-          }
-        }
-        
-        // Restore custom dimensions
-        if (parsedResolutionSettings.customWidth) {
-          setCustomWidth(parsedResolutionSettings.customWidth);
-        }
-        
-        if (parsedResolutionSettings.customHeight) {
-          setCustomHeight(parsedResolutionSettings.customHeight);
-        }
-        
-        // Restore crop settings
-        if (parsedResolutionSettings.cropMode) {
-          setCropMode(parsedResolutionSettings.cropMode);
-        }
-        
-        if (parsedResolutionSettings.cropPosition) {
-          setCropPosition(parsedResolutionSettings.cropPosition);
-        }
-        
-        // Restore aspect ratio settings
-        if (parsedResolutionSettings.maintainAspectRatio !== undefined) {
-          setMaintainAspectRatio(parsedResolutionSettings.maintainAspectRatio);
-        }
-        
-        if (parsedResolutionSettings.aspectRatio) {
-          setAspectRatio(parsedResolutionSettings.aspectRatio);
-        }
-      }
-    } catch (err) {
-      console.error("ImageEditor: Error loading saved settings:", err);
-    }
-  }, []);
-
-  // Save effect settings to localStorage whenever they change
-  useEffect(() => {
-    try {
-      localStorage.setItem('glitchMixer_effects', JSON.stringify(userEffects));
-    } catch (err) {
-      console.error("ImageEditor: Error saving effect settings to localStorage:", err);
-    }
-  }, [userEffects]);
-
-  // Save animation settings to localStorage whenever they change
-  useEffect(() => {
-    try {
-      localStorage.setItem('glitchMixer_animation', JSON.stringify(animationOptions));
-    } catch (err) {
-      console.error("ImageEditor: Error saving animation settings to localStorage:", err);
-    }
-  }, [animationOptions]);
-
-  // Save resolution settings to localStorage whenever they change
-  useEffect(() => {
-    try {
-      const resolutionSettings = {
-        selectedResolution,
-        customWidth,
-        customHeight,
-        cropMode,
-        cropPosition,
-        maintainAspectRatio,
-        aspectRatio
-      }
-      
-      localStorage.setItem('glitchMixer_resolution', JSON.stringify(resolutionSettings));
-    } catch (err) {
-      console.error("ImageEditor: Error saving resolution settings to localStorage:", err);
-    }
-  }, [selectedResolution, customWidth, customHeight, cropMode, cropPosition, maintainAspectRatio, aspectRatio]);
-
-  // Improve the static image loading function
-  const loadStaticImage = (url: string) => {
-    console.log("ImageEditor: Loading static image:", url);
-    
-    setIsLoading(true);
-    setError(null);
-    
-    const image = new Image();
-    image.crossOrigin = 'Anonymous';
-    
-    image.onload = () => {
-      console.log("ImageEditor: Static image loaded successfully:", image.width, "x", image.height);
-      setImageElement(image);
-      setIsAnimatedGif(false);
-      setIsLoading(false);
-      
-      // Set initial aspect ratio
-      setAspectRatio(image.width / image.height);
-      
-      // If using original resolution, set custom dimensions to match image
-      if (selectedResolution.name === 'Original') {
-        setCustomWidth(image.width);
-        setCustomHeight(image.height);
-      }
-      
-      // Schedule canvas update after state changes have been applied
-      setTimeout(() => {
-        console.log("ImageEditor: Updating canvas dimensions for static image");
-        updateCanvasDimensions();
-      }, 50);
-    }
-    
-    image.onerror = (err) => {
-      console.error("ImageEditor: Error loading image:", err);
-      setError('Failed to load the image. Check the URL or file format.');
-      setIsLoading(false);
-      setImageElement(null);
-      setDisplayUploadInterface(true);
-    }
-    
-    try {
-      // For data URLs or regular URLs
-      image.src = url;
-    } catch (err) {
-      console.error("ImageEditor: Error setting image source:", err);
-      setError('Invalid image URL or format.');
-      setIsLoading(false);
-      setDisplayUploadInterface(true);
-    }
-  }
-
-  // Create a stable animation loop
-  useEffect(() => {
-    if (isLoading || !canvasRefOriginal.current) return;
-    
-    // Define function to render a single frame
-    const renderFrame = () => {
-      try {
-        console.log("Rendering frame");
-        
-        if (isAnimatedGif) {
-          console.log("Rendering animated GIF frame");
-          // For GIFs, use the animatedGif's current frame
-          if (!animatedGif.isPlaying) return;
-          
-          // Get canvas and context
-          const canvas = canvasRefOriginal.current;
-          if (!canvas) return;
-          
-          const ctx = canvas.getContext('2d', { willReadFrequently: true });
-          if (!ctx) return;
-          
-          // Let the animated GIF handler draw the current frame
-          animatedGif.renderToCanvas(canvas, (canvas) => {
-            // Apply glitch effects
-            const effectsToUse = animationOptions.enabled ? effectsToApply : userEffects;
-            applyEffects(canvas, effectsToUse);
-          });
-        }
-      } catch (error) {
-        console.error("Error in renderFrame:", error);
-      }
-    };
-    
-    // Set up animation frame loop
-    let animationId: number;
-    const animate = () => {
-      renderFrame();
-      animationId = requestAnimationFrame(animate);
-    };
-    
-    // Start animation
-    if (isAnimatedGif && animatedGif.isPlaying) {
-      animate();
-    }
-    
-    // Cleanup
-    return () => {
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-      }
-    };
-  }, [isAnimatedGif, isLoading, animatedGif.isPlaying, applyEffects, effectsToApply, userEffects, animationOptions.enabled]);
-
   // Update GIF recording to handle animated GIFs
   const handleStartGifRecording = () => {
     if (!canvasRefOriginal.current) return;
@@ -601,7 +674,7 @@ function ImageEditor({
         maxFrames: 50 // 5 seconds at 10fps
       });
     }
-  }
+  };
 
   // Add state for tracking animated GIF recording
   const [isRecordingAnimatedGif, setIsRecordingAnimatedGif] = useState(false);
@@ -711,19 +784,19 @@ function ImageEditor({
       }
       
       return result;
-    }
+    };
     
     // Clean up by restoring the original method
     return () => {
       console.log("Restoring original renderToCanvas method");
       animatedGif.renderToCanvas = originalRenderToCanvas;
-    }
+    };
   }, [isAnimatedGif, shaderOptions.enabled, shaderCanvasRef, canvasRef, applyShaderEffects, animatedGif]);
 
   // Functions to handle GIF recording
   const handleStopGifRecording = () => {
     gifRecorder.stopRecording();
-  }
+  };
 
   // Handle animation toggle
   useEffect(() => {
@@ -753,11 +826,11 @@ function ImageEditor({
   // Function to handle resolution dialog
   const handleOpenResolutionDialog = () => {
     setResolutionDialogOpen(true);
-  }
+  };
   
   const handleCloseResolutionDialog = () => {
     setResolutionDialogOpen(false);
-  }
+  };
   
   const handleResolutionChange = (preset: ResolutionPreset) => {
     setSelectedResolution(preset);
@@ -774,7 +847,7 @@ function ImageEditor({
       setCustomWidth(preset.width);
       setCustomHeight(preset.height);
     }
-  }
+  };
   
   // Update custom dimensions with aspect ratio preservation
   const handleCustomWidthChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -785,7 +858,7 @@ function ImageEditor({
       // Calculate new height based on aspect ratio
       setCustomHeight(Math.round(width / aspectRatio));
     }
-  }
+  };
   
   const handleCustomHeightChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const height = parseInt(event.target.value, 10);
@@ -795,7 +868,7 @@ function ImageEditor({
       // Calculate new width based on aspect ratio
       setCustomWidth(Math.round(height * aspectRatio));
     }
-  }
+  };
   
   // Handle aspect ratio toggle
   const handleAspectRatioToggle = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -806,12 +879,12 @@ function ImageEditor({
       // When turning it on, recalculate the aspect ratio from the current custom dimensions
       setAspectRatio(customWidth / customHeight);
     }
-  }
+  };
   
   // Update user effects
   const handleEffectsChange = (newEffects: GlitchOptions) => {
     setUserEffects(newEffects);
-  }
+  };
   
   // Reset effects
   const handleEffectsReset = () => {
@@ -845,7 +918,7 @@ function ImageEditor({
         audioReactive: animationOptions.audioReactive
       });
     }
-  }
+  };
   
   // Save image
   const handleSaveImage = () => {
@@ -855,28 +928,28 @@ function ImageEditor({
     link.download = 'glitched-image.png';
     link.href = canvasRef.current.toDataURL('image/png');
     link.click();
-  }
+  };
   
   // Handle animation and audio controls
   const handleAnimationEnabledChange = (enabled: boolean) => {
     setAnimationOptions(prev => ({ ...prev, enabled }));
     updateAnimationOptions({ enabled });
-  }
+  };
   
   const handleAnimationSpeedChange = (speed: number) => {
     setAnimationOptions(prev => ({ ...prev, speed }));
     updateAnimationOptions({ speed });
-  }
+  };
   
   const handleAnimationIntensityChange = (intensity: number) => {
     setAnimationOptions(prev => ({ ...prev, intensity }));
     updateAnimationOptions({ intensity });
-  }
+  };
   
   const handleAudioReactiveChange = (audioReactive: boolean) => {
     setAnimationOptions(prev => ({ ...prev, audioReactive }));
     updateAnimationOptions({ audioReactive });
-  }
+  };
   
   const handleMicrophoneToggle = () => {
     if (audioData.isActive) {
@@ -884,16 +957,16 @@ function ImageEditor({
     } else {
       startAudioAnalysis();
     }
-  }
+  };
   
   // Add handlers for crop mode and position
   const handleCropModeChange = (mode: 'fill' | 'fit' | 'crop') => {
     setCropMode(mode);
-  }
+  };
   
   const handleCropPositionChange = (position: 'center' | 'top' | 'bottom' | 'left' | 'right') => {
     setCropPosition(position);
-  }
+  };
   
   // Update animation options when chaotic mode changes
   useEffect(() => {
@@ -907,7 +980,7 @@ function ImageEditor({
   const handleChaoticModeChange = (chaotic: boolean) => {
     setChaoticMode(chaotic);
     updateAnimationOptions({ chaotic });
-  }
+  };
 
   // Add global cleanup for all animations and timers
   useEffect(() => {
@@ -933,7 +1006,7 @@ function ImageEditor({
       if (animationOptions.enabled) {
         updateAnimationOptions({ enabled: false });
       }
-    }
+    };
   }, []);
 
   // Effects driven by selectedImage changes
@@ -996,7 +1069,7 @@ function ImageEditor({
             console.log("ImageEditor: Updating canvas dimensions for data URL image");
             updateCanvasDimensions();
           }, 50);
-        }
+        };
         
         img.onerror = (err) => {
           console.error("ImageEditor: Error loading data URL image:", err);
@@ -1004,7 +1077,7 @@ function ImageEditor({
           setIsLoading(false);
           setImageElement(null);
           setDisplayUploadInterface(true);
-        }
+        };
         
         img.src = selectedImage;
       } else {
@@ -1585,4 +1658,4 @@ function ImageEditor({
   );
 }
 
-export default ImageEditor;
+export default ImageEditor; 

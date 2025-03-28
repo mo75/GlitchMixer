@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import init, { GlitchEffect } from 'glitch-wasm';
+import { BlendImage, BlendOptions, getBlendModeValue } from './useImageBlender';
 
 export interface PixelSortOptions {
   intensity: number;
@@ -21,6 +22,30 @@ export interface ChannelShiftOptions {
   direction?: number; // -1=left, 1=right, 0=random
 }
 
+export interface ByteCorruptOptions {
+  amount: number;          // Corruption intensity (0.0-1.0)
+  mode?: number;           // 0=random bytes, 1=bit flip, 2=zero out, 3=max out, undefined=random
+  blockSize?: number;      // Size of corruption blocks (default: 1)
+  structured: boolean;     // Use structured patterns vs random
+}
+
+export interface ChunkSwapOptions {
+  amount: number;         // How many chunks to swap (0.0-1.0)
+  chunkSize?: number;     // Relative chunk size (0.0-1.0)
+  preserveAlpha: boolean; // Whether to preserve alpha channel
+}
+
+export interface BinaryXorOptions {
+  pattern?: number[];     // Pattern to XOR with (if undefined, will use random pattern)
+  strength: number;       // Strength of the effect (0.0-1.0)
+  mode?: number;          // 0=full image, 1=horizontal bands, 2=vertical bands, 3=blocks
+}
+
+export interface ImageBlendOptions {
+  secondaryImage: BlendImage;  // The secondary image to blend with
+  blendOptions: BlendOptions;  // Blend mode, amount, and offset
+}
+
 // Extended to support per-channel application of effects
 export interface ChannelEffects {
   pixelSort?: PixelSortOptions;
@@ -29,6 +54,8 @@ export interface ChannelEffects {
   noise?: number; // 0.0-1.0
   invert?: boolean; // Whether to invert this channel
   quantize?: number; // Color depth reduction (2-256)
+  byteCorrupt?: ByteCorruptOptions; // Byte corruption
+  binaryXor?: BinaryXorOptions; // Binary XOR operation
 }
 
 export interface GlitchOptions {
@@ -39,6 +66,12 @@ export interface GlitchOptions {
   noise?: number; // 0.0-1.0
   invert?: number[]; // Which channels to invert (0=R, 1=G, 2=B, 3=A)
   quantize?: number; // Color depth reduction (2-256)
+  
+  // New corruption effects
+  byteCorrupt?: ByteCorruptOptions;
+  chunkSwap?: ChunkSwapOptions;
+  binaryXor?: BinaryXorOptions;
+  imageBlend?: ImageBlendOptions;
   
   // Per-channel effects
   redChannel?: ChannelEffects;
@@ -209,6 +242,62 @@ export const useGlitchEffect = () => {
     if (options.quantize && options.quantize < 256) {
       glitchEffect.quantize(pixelData, options.quantize);
     }
+    
+    // 7. Byte Corruption
+    if (options.byteCorrupt && options.byteCorrupt.amount > 0) {
+      glitchEffect.byte_corrupt(
+        pixelData,
+        options.byteCorrupt.amount,
+        options.byteCorrupt.mode === undefined ? null : options.byteCorrupt.mode,
+        options.byteCorrupt.blockSize === undefined ? null : options.byteCorrupt.blockSize,
+        options.byteCorrupt.structured
+      );
+    }
+    
+    // 8. Chunk Swap
+    if (options.chunkSwap && options.chunkSwap.amount > 0) {
+      glitchEffect.chunk_swap(
+        pixelData,
+        width,
+        options.chunkSwap.amount,
+        options.chunkSwap.chunkSize === undefined ? null : options.chunkSwap.chunkSize,
+        options.chunkSwap.preserveAlpha
+      );
+    }
+    
+    // 9. Binary XOR
+    if (options.binaryXor && options.binaryXor.strength > 0) {
+      let patternArray = null;
+      if (options.binaryXor.pattern && options.binaryXor.pattern.length > 0) {
+        // Create a primitive Uint8Array from the pattern
+        patternArray = new Uint8Array(options.binaryXor.pattern);
+      }
+      
+      glitchEffect.binary_xor(
+        pixelData,
+        width,
+        patternArray,
+        options.binaryXor.strength,
+        options.binaryXor.mode === undefined ? null : options.binaryXor.mode
+      );
+    }
+    
+    // 10. Image Blend
+    if (options.imageBlend && options.imageBlend.secondaryImage?.data) {
+      const { secondaryImage, blendOptions } = options.imageBlend;
+      
+      glitchEffect.image_blend(
+        pixelData,
+        width,
+        secondaryImage.data,
+        secondaryImage.width,
+        secondaryImage.height,
+        getBlendModeValue(blendOptions.mode),
+        blendOptions.amount,
+        blendOptions.offsetX,
+        blendOptions.offsetY
+      );
+    }
   };
 
   // Helper function to extract channels, apply effects, and recombine
@@ -263,21 +352,21 @@ export const useGlitchEffect = () => {
   const applyEffectsToChannel = (channelData: Uint8Array, width: number, effects: ChannelEffects) => {
     if (!glitchEffect) return;
     
-    // Need to convert single-channel data to RGBA for compatibility with existing functions
-    const pixelCount = channelData.length;
-    const rgbaData = new Uint8Array(pixelCount * 4);
+    // We need to transform single-channel data to RGBA for the Wasm functions to work
+    // Create a temporary RGBA array where our channel is duplicated to all RGB components
+    const rgbaData = new Uint8Array(channelData.length * 4);
     
-    // Copy channel data to R, G, B channels (depending on which we're working with)
-    for (let i = 0; i < pixelCount; i++) {
+    // Copy the channel data to RGB components, set alpha to 255
+    for (let i = 0; i < channelData.length; i++) {
       const value = channelData[i];
       const offset = i * 4;
       rgbaData[offset] = value;     // R
       rgbaData[offset + 1] = value; // G
       rgbaData[offset + 2] = value; // B
-      rgbaData[offset + 3] = 255;   // A (fully opaque)
+      rgbaData[offset + 3] = 255;   // Alpha
     }
     
-    // Apply effects to the RGBA data
+    // Now apply the effects to this expanded array
     
     // 1. Pixel Sort
     if (effects.pixelSort && effects.pixelSort.intensity > 0) {
@@ -302,18 +391,12 @@ export const useGlitchEffect = () => {
       );
     }
     
-    // 3. Channel Shift - Note: This has limited effect on a single channel
+    // 3. Shift (basically a mini channel shift but on one channel)
     if (effects.shift && effects.shift.amount > 0) {
-      let channelsArray = null;
-      if (effects.shift.channels && effects.shift.channels.length > 0) {
-        const primitiveArray = [...effects.shift.channels].map(Number);
-        channelsArray = new Uint32Array(primitiveArray);
-      }
-      
       glitchEffect.channel_shift(
         rgbaData,
         effects.shift.amount,
-        channelsArray,
+        new Uint32Array([0, 1, 2]), // all RGB channels since they contain copies of our data
         effects.shift.direction === undefined ? null : effects.shift.direction
       );
     }
@@ -325,9 +408,7 @@ export const useGlitchEffect = () => {
     
     // 5. Invert
     if (effects.invert) {
-      // Invert this channel only
-      const invertArray = new Uint32Array([0]); // Use index 0 to invert the R channel of our RGBA data
-      glitchEffect.invert_channels(rgbaData, invertArray);
+      glitchEffect.invert_channels(rgbaData, new Uint32Array([0, 1, 2])); // All RGB components
     }
     
     // 6. Quantize
@@ -335,9 +416,42 @@ export const useGlitchEffect = () => {
       glitchEffect.quantize(rgbaData, effects.quantize);
     }
     
-    // Copy the R channel back to the original channel data
-    for (let i = 0; i < pixelCount; i++) {
-      channelData[i] = rgbaData[i * 4]; // Take only R channel from resulting RGBA
+    // 7. Byte Corruption
+    if (effects.byteCorrupt && effects.byteCorrupt.amount > 0) {
+      glitchEffect.byte_corrupt(
+        rgbaData,
+        effects.byteCorrupt.amount,
+        effects.byteCorrupt.mode === undefined ? null : effects.byteCorrupt.mode,
+        effects.byteCorrupt.blockSize === undefined ? null : effects.byteCorrupt.blockSize,
+        effects.byteCorrupt.structured
+      );
+    }
+    
+    // 8. Binary XOR
+    if (effects.binaryXor && effects.binaryXor.strength > 0) {
+      let patternArray = null;
+      if (effects.binaryXor.pattern && effects.binaryXor.pattern.length > 0) {
+        patternArray = new Uint8Array(effects.binaryXor.pattern);
+      }
+      
+      glitchEffect.binary_xor(
+        rgbaData,
+        width,
+        patternArray,
+        effects.binaryXor.strength,
+        effects.binaryXor.mode === undefined ? null : effects.binaryXor.mode
+      );
+    }
+    
+    // Now extract the channel data back from RGB (we'll average R, G, B for best effect)
+    for (let i = 0; i < channelData.length; i++) {
+      const offset = i * 4;
+      const r = rgbaData[offset];
+      const g = rgbaData[offset + 1];
+      const b = rgbaData[offset + 2];
+      
+      // Average the RGB values for the final channel value
+      channelData[i] = Math.round((r + g + b) / 3);
     }
   };
 

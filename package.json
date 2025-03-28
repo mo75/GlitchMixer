@@ -13,10 +13,12 @@
     "@emotion/styled": "^11.11.0",
     "@mui/icons-material": "^5.13.0",
     "@mui/material": "^5.13.0",
+    "@types/react-beautiful-dnd": "^13.1.8",
     "gif.js": "^0.2.0",
     "gifuct-js": "^2.1.2",
     "glitch-wasm": "file:glitch-wasm/pkg",
     "react": "^18.2.0",
+    "react-beautiful-dnd": "^13.1.1",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
